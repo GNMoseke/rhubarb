@@ -23,7 +23,7 @@ fn main() -> std::io::Result<()> {
             bind_addr = &args[2];
         }
         let mut client = WebSocketClient::create(bind_addr)?;
-        _ = client.send(HARDCODED_HANDSHAKE);
+        _ = client.send(HARDCODED_HANDSHAKE.as_bytes());
 
         // now read user stdin and send that
         let mut stdin_buf = String::new();

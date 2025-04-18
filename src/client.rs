@@ -3,7 +3,7 @@ use std::{
     net::TcpStream,
 };
 
-pub(crate) const HARDCODED_HANDSHAKE: &[u8] = b"
+pub(crate) const HARDCODED_HANDSHAKE: &str = "
 GET /ws HTTP/1.1
 Host: localhost
 Upgrade: websocket

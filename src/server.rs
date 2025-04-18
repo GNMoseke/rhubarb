@@ -1,13 +1,16 @@
+use base64ct::{Base64, Encoding};
+use sha1::{Digest, Sha1};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     net::{Shutdown, TcpListener, TcpStream},
 };
 
+use crate::client;
+
 pub(crate) struct WebSocketServer {
     _listener: TcpListener,
 }
-
 
 impl WebSocketServer {
     pub(crate) fn create(bind_addr: &str) -> std::io::Result<WebSocketServer> {
@@ -53,4 +56,62 @@ impl WebSocketServer {
             }
         }
     }
+
+    /// Returns a result with either a valid value for Sec-WebSocket-Accept, or a string to be used
+    /// in a 400 bad request
+    fn validate_handshake(client_handshake: String) -> Result<String, String> {
+        let mut components = client_handshake.split('\n');
+        // pop the method + path + http version
+        let http_request = components.next();
+
+        // validation 1 - must be a GET request, with a valid Request-URI with HTTP/1.1 or higher
+
+        // TODO: I'm just chucking the rest of the headers here, but I could return them as part
+        // of a tuple or struct or something, then pass back to a closure on the `handle_client`
+        // and `listen` funcs.
+        // e.g. the api is something like:
+        // WebSocketClient::create("...").listen(on_initial_conn: { request }, on_recv: { bytes })
+        // ergonomics wise I could also register those callbacks using their own funcs
+        // or both, both is good
+        let headers = components
+            .filter_map(|header| header.split_once(':'))
+            .map(|(header_name, val)| (header_name.to_lowercase(), val))
+            .collect::<HashMap<_, _>>();
+
+        let mut key = match headers.get("sec-websocket-key") {
+            Some(h) => h.trim().to_string(),
+            None => return Err(String::from("Handshake missing Sec-WebSocket-key header")),
+        };
+
+        // validation 2 - must include a Host header matching server
+        
+        // validation 3 - must include "upgrade: websocket" header
+
+        // validation 4 - must include "connection: upgrade" header
+
+        // validation 6 - "sec-websocket-version: 13". Process before key to avoid the hash if we
+        // can
+
+        // validation 5 - key
+        // This key must be exactly 24 characters (b64 on a 16 byte nonce), as per
+        // https://www.rfc-editor.org/rfc/rfc6455#section-4.1
+
+        // the magic UUID from https://www.rfc-editor.org/rfc/rfc6455#section-1.3
+        key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+        // TODO: I would like to write a pure-rust version of this myself, but right now I'm cheating and
+        // just calling into rustcrypto
+        let hash = Sha1::digest(key.as_bytes());
+        let base64_hash = Base64::encode_string(&hash);
+        return Ok(base64_hash);
+    }
+}
+
+#[test]
+fn test_validate_handshake() {
+    assert_eq!(
+        WebSocketServer::validate_handshake(client::HARDCODED_HANDSHAKE.to_string()),
+        Ok(String::from("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
+    );
+    assert!(WebSocketServer::validate_handshake(String::from("")).is_err());
 }
