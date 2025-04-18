@@ -23,7 +23,8 @@ fn main() -> std::io::Result<()> {
     let run_mode = &args[1];
 
     if run_mode.to_lowercase() == "server" {
-        return create_server();
+        let server = WebSocketServer::create("127.0.0.1:4024")?;
+        return server.listen();
     } else if run_mode.to_lowercase() == "client" {
         let bind_addr: &str;
         if args.iter().count() < 3 {
@@ -31,29 +32,50 @@ fn main() -> std::io::Result<()> {
         } else {
             bind_addr = &args[2];
         }
-        return create_client(bind_addr);
+        let client = WebSocketClient::create(bind_addr)?;
+        return client.send(HARDCODED_HANDSHAKE);
     } else {
         panic!("Must give arg as 'client' or 'server'")
     }
 }
 
-fn create_client(addr: &str) -> std::io::Result<()> {
-    let mut stream = TcpStream::connect(addr)?;
-    stream.write(HARDCODED_HANDSHAKE)?;
-    Ok(())
+struct WebSocketServer {
+    _listener: TcpListener,
 }
 
-fn create_server() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:4024")?;
+struct WebSocketClient {
+    _stream: TcpStream,
+}
 
-    for stream in listener.incoming() {
-        handle_client(stream?);
+impl WebSocketClient {
+    fn create(bind_addr: &str) -> std::io::Result<WebSocketClient> {
+        let _stream = TcpStream::connect(bind_addr)?;
+        Ok(WebSocketClient { _stream })
     }
-    Ok(())
+
+    fn send(mut self, data: &[u8]) -> std::io::Result<()> {
+        self._stream.write(data)?;
+        Ok(())
+    }
 }
 
-fn handle_client(mut stream: TcpStream) {
-    let mut strbuf = String::new();
-    stream.read_to_string(&mut strbuf).unwrap();
-    println!("{}", strbuf);
+impl WebSocketServer {
+    fn create(bind_addr: &str) -> std::io::Result<WebSocketServer> {
+        let _listener = TcpListener::bind(bind_addr)?;
+        Ok(WebSocketServer { _listener })
+    }
+
+    fn listen(self) -> std::io::Result<()> {
+        for stream in self._listener.incoming() {
+            self.handle_client(stream?);
+        }
+        Ok(())
+    }
+
+    fn handle_client(&self, mut stream: TcpStream) {
+        // need to first handle the handshake, then start processing data
+        let mut strbuf = String::new();
+        stream.read_to_string(&mut strbuf).unwrap();
+        println!("{}", strbuf);
+    }
 }
