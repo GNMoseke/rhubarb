@@ -3,8 +3,9 @@ use server::*;
 use std::env;
 
 mod client;
-mod server;
 mod log;
+mod server;
+mod util;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -24,9 +25,10 @@ fn main() -> std::io::Result<()> {
         };
 
         let mut client = WebSocketClient::create(bind_addr)?;
-        _ = client.send(HARDCODED_HANDSHAKE.as_bytes());
+        // TODO: let this path be an arg to the cli
+        client.perform_handshake(String::from("/ws"))?;
 
-        // now read user stdin and send that
+        // now read user stdin and send that for all eternity
         let mut stdin_buf = String::new();
         let stdin = std::io::stdin();
         while stdin.read_line(&mut stdin_buf)? != 0 {

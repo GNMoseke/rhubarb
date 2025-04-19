@@ -1,4 +1,5 @@
-use crate::log;
+use crate::log::*;
+use crate::util::*;
 use base64ct::{Base64, Encoding};
 use sha1::{Digest, Sha1};
 use std::{
@@ -13,15 +14,6 @@ pub(crate) struct WebSocketServer {
 
 struct ServerHandle<S: Stream> {
     stream: S,
-}
-
-pub(crate) trait Stream {
-    fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr>;
-}
-impl Stream for TcpStream {
-    fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
-        self.peer_addr()
-    }
 }
 
 impl WebSocketServer {
@@ -43,7 +35,7 @@ impl WebSocketServer {
 
 impl ServerHandle<TcpStream> {
     pub(crate) fn handle_client(&mut self) -> std::io::Result<()> {
-        self.log(String::from("New Client Connected"), log::LogLevel::Info);
+        self.log(String::from("New Client Connected"), LogLevel::Info);
         let mut reader = BufReader::new(self.stream.try_clone()?);
         let recv: Vec<u8> = reader.fill_buf()?.to_vec();
         reader.consume(recv.len());
@@ -52,7 +44,7 @@ impl ServerHandle<TcpStream> {
         let handshake = String::from_utf8(recv).map_err(|_| {
             self.stream
                 .shutdown(Shutdown::Both)
-                .expect("Shutdown failed");
+                .expect("Shutdown succeeded");
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to parse handshake as utf8",
@@ -63,25 +55,22 @@ impl ServerHandle<TcpStream> {
             handshake,
             self.stream
                 .local_addr()
-                .expect("no local address found")
+                .expect("local address found")
                 .to_string(),
         ) {
             // TODO: handle other HTTP protocol values, Sec-WebSocket-Protocol,
             // Sec-WebSocket-Extensions, and any additional headers
             Ok(key) => {
                 let response = format!(
-                    "HTTP/1.1 101 Switching Protocols
-                    Upgrade: websocket
-                    Connection: Upgrade
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: websocket\n\
+                    Connection: Upgrade\n\
                     Sec-WebSocket-Accept: {key}"
                 );
                 self.stream.write_all(response.as_bytes())?;
             }
             Err(msg) => {
-                self.log(
-                    format!("Handshake failed - {}", msg),
-                    log::LogLevel::Warning,
-                );
+                self.log(format!("Handshake failed - {}", msg), LogLevel::Warning);
                 let response = format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}");
                 self.stream.write_all(response.as_bytes())?;
                 self.stream
@@ -93,7 +82,7 @@ impl ServerHandle<TcpStream> {
 
         self.log(
             String::from("Handshake complete, websocket established."),
-            log::LogLevel::Info,
+            LogLevel::Info,
         );
 
         // echo back whatever we get from here on
@@ -118,8 +107,8 @@ impl<S: Stream> ServerHandle<S> {
         hostname: String,
     ) -> Result<String, String> {
         self.log(
-            format!("Validating client handshake {}", client_handshake),
-            log::LogLevel::Debug,
+            format!("Validating client handshake\n{}", client_handshake),
+            LogLevel::Debug,
         );
         let mut components = client_handshake.trim().split('\n');
         // pop the method + path + http version
@@ -226,13 +215,13 @@ impl<S: Stream> ServerHandle<S> {
         Ok(base64_hash)
     }
 
-    fn log(&self, msg: String, level: log::LogLevel) {
+    fn log(&self, msg: String, level: LogLevel) {
         // NOTE: this expect is half-reasonable since if we can't get a peer addr how are we
         // connected, but it should probably be handled more gracefully
-        log::log(
+        log(
             format!(
                 "{} - {msg}",
-                self.stream.peer_addr().expect("No peer address found")
+                self.stream.peer_addr().expect("peer address found")
             ),
             level,
         );
