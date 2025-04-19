@@ -6,59 +6,65 @@ use std::{
     net::{Shutdown, TcpListener, TcpStream},
 };
 
-pub(crate) struct WebSocketServer<L: Listener> {
-    _listener: L,
-    hostname: String,
+pub(crate) struct WebSocketServer {
+    _listener: TcpListener,
 }
 
-pub(crate) trait Listener {}
-impl Listener for TcpListener {}
+struct ServerHandle<S: Stream> {
+    stream: S,
+}
 
-impl WebSocketServer<TcpListener> {
-    pub(crate) fn create(bind_addr: &str) -> std::io::Result<WebSocketServer<TcpListener>> {
+pub(crate) trait Stream {}
+impl Stream for TcpStream {}
+
+impl WebSocketServer {
+    pub(crate) fn create(bind_addr: &str) -> std::io::Result<WebSocketServer> {
         let _listener = TcpListener::bind(bind_addr)?;
-        Ok(WebSocketServer {
-            _listener,
-            hostname: bind_addr.to_string(),
-        })
+        Ok(WebSocketServer { _listener })
     }
 
     pub(crate) fn listen(self) -> std::io::Result<()> {
         for stream in self._listener.incoming().flatten() {
-            // TODO: dispatch each client to its own thread so that one bad handshake doesn't take
-            // down the server
-            self.handle_client(stream)?;
+            std::thread::spawn(|| {
+                let mut handle = ServerHandle::<TcpStream> { stream };
+                handle.handle_client()
+            });
         }
         Ok(())
     }
+}
 
-    pub(crate) fn handle_client(&self, mut stream: TcpStream) -> std::io::Result<()> {
-        let mut reader = BufReader::new(stream.try_clone()?);
+impl ServerHandle<TcpStream> {
+    pub(crate) fn handle_client(&mut self) -> std::io::Result<()> {
+        let mut reader = BufReader::new(self.stream.try_clone()?);
         let recv: Vec<u8> = reader.fill_buf()?.to_vec();
         reader.consume(recv.len());
 
         // need to first handle the handshake, then start processing data
         let handshake = String::from_utf8(recv).map_err(|_| {
             // TODO: handle a failed shutdown
-            _ = stream.shutdown(Shutdown::Both);
+            _ = self.stream.shutdown(Shutdown::Both);
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to parse handshake as utf8",
             )
         })?;
-        
-        let response = match self.validate_handshake(handshake) {
+
+        let response = match self
+            .validate_handshake(handshake, self.stream.local_addr().unwrap().to_string())
+        {
             // TODO: handle other HTTP protocol values, Sec-WebSocket-Protocol,
             // Sec-WebSocket-Extensions, and any additional headers
             Ok(key) => format!(
-            "HTTP/1.1 101 Switching Protocols
+                "HTTP/1.1 101 Switching Protocols
             Upgrade: websocket
             Connection: Upgrade
-            Sec-WebSocket-Accept: {key}"),
+            Sec-WebSocket-Accept: {key}"
+            ),
             Err(msg) => format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}"),
         };
 
-        stream.write(response.as_bytes())?;
+        self.stream.write(response.as_bytes())?;
 
         // echo back whatever we get from here on
         loop {
@@ -67,16 +73,20 @@ impl WebSocketServer<TcpListener> {
             let message = String::from_utf8(recv).unwrap();
             if !message.is_empty() {
                 print!("{}", message);
-                _ = stream.write(message.as_bytes());
+                _ = self.stream.write(message.as_bytes());
             }
         }
     }
 }
 
-impl<L: Listener> WebSocketServer<L> {
+impl<S: Stream> ServerHandle<S> {
     /// Returns a result with either a valid value for Sec-WebSocket-Accept, or a string to be used
     /// in a 400 bad request
-    fn validate_handshake(&self, client_handshake: String) -> Result<String, String> {
+    fn validate_handshake(
+        &self,
+        client_handshake: String,
+        hostname: String,
+    ) -> Result<String, String> {
         let mut components = client_handshake.trim().split('\n');
         // pop the method + path + http version
         let http_request = match components.next() {
@@ -128,7 +138,7 @@ impl<L: Listener> WebSocketServer<L> {
 
         // validation 2 - must include a Host header matching server
         match headers.get("host") {
-            Some(given_host) if *given_host.trim().to_string() == self.hostname => {}
+            Some(given_host) if *given_host.trim().to_string() == hostname => {}
             Some(_) => return Err(String::from("Invalid hostname")),
             None => return Err(String::from("Handshake missing Host header")),
         };
@@ -185,43 +195,45 @@ impl<L: Listener> WebSocketServer<L> {
 
 #[cfg(test)]
 mod tests {
-    struct MockListener {}
+    struct MockStream {}
     use crate::client;
     use crate::server::*;
-    impl Listener for MockListener {}
-    fn make_test_server() -> WebSocketServer<MockListener> {
-        WebSocketServer {
-            _listener: MockListener {},
-            hostname: String::from("localhost"),
+    impl Stream for MockStream {}
+    fn make_test_handle() -> ServerHandle<MockStream> {
+        ServerHandle {
+            stream: MockStream {},
         }
     }
 
     #[test]
     fn valid_handshake() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(client::HARDCODED_HANDSHAKE.to_string()),
+            server.validate_handshake(
+                client::HARDCODED_HANDSHAKE.to_string(),
+                String::from("localhost")
+            ),
             Ok(String::from("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
         );
     }
 
     #[test]
     fn malformed_request() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from("POST /ws HTTP/1.1")),
+            server.validate_handshake(String::from("POST /ws HTTP/1.1"), String::from("localhost")),
             Err(String::from("Handshake is not a GET Request"))
         );
         assert_eq!(
-            server.validate_handshake(String::from("GET /ws PTTH/1.1")),
+            server.validate_handshake(String::from("GET /ws PTTH/1.1"), String::from("localhost")),
             Err(String::from(
                 "Handshake is using an invalid HTTP version, must be HTTP/1.1 or higher"
             ))
         );
         assert_eq!(
-            server.validate_handshake(String::from("GET /ws HTTP/1.0")),
+            server.validate_handshake(String::from("GET /ws HTTP/1.0"), String::from("localhost")),
             Err(String::from(
                 "Handshake is using an invalid HTTP version, must be HTTP/1.1 or higher"
             ))
@@ -230,115 +242,142 @@ mod tests {
 
     #[test]
     fn bad_host_header() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from("GET /ws HTTP/1.1")),
+            server.validate_handshake(String::from("GET /ws HTTP/1.1"), String::from("localhost")),
             Err(String::from("Handshake missing Host header"))
         );
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
             Host: badhost"
-            )),
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Invalid hostname"))
         );
     }
 
     #[test]
     fn bad_upgrade_header() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Handshake missing Upgrade header"))
         );
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost
-            Upgrade: Not Websocket"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost
+                    Upgrade: Not Websocket"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Requested Upgrade was not 'websocket'"))
         );
     }
 
     #[test]
     fn bad_connection_header() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
             Host: localhost
             Upgrade: Websocket"
-            )),
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Handshake missing Connection header"))
         );
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
             Host: localhost
             Upgrade: Websocket
             Connection: Not Upgrade"
-            )),
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Requested Connection was not 'upgrade'"))
         );
     }
 
     #[test]
     fn bad_version_header() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost
-            Upgrade: Websocket
-            Connection: Upgrade"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost
+                    Upgrade: Websocket
+                    Connection: Upgrade"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from(
                 "Handshake missing Sec-WebSocket-Version header"
             ))
         );
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost
-            Upgrade: Websocket
-            Connection: Upgrade
-            Sec-WebSocket-Version: 14"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost
+                    Upgrade: Websocket
+                    Connection: Upgrade
+                    Sec-WebSocket-Version: 14"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Requested Sec-WebSocket-Version was not '13'"))
         );
     }
 
     #[test]
     fn bad_key_header() {
-        let server = make_test_server();
+        let server = make_test_handle();
 
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost
-            Upgrade: Websocket
-            Connection: Upgrade
-            Sec-WebSocket-Version: 13"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost
+                    Upgrade: Websocket
+                    Connection: Upgrade
+                    Sec-WebSocket-Version: 13"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Handshake missing Sec-WebSocket-Key header"))
         );
         assert_eq!(
-            server.validate_handshake(String::from(
-                "GET /ws HTTP/1.1
-            Host: localhost
-            Upgrade: Websocket
-            Connection: Upgrade
-            Sec-WebSocket-Version: 13
-            Sec-WebSocket-Key: foo"
-            )),
+            server.validate_handshake(
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: localhost
+                    Upgrade: Websocket
+                    Connection: Upgrade
+                    Sec-WebSocket-Version: 13
+                    Sec-WebSocket-Key: foo"
+                ),
+                String::from("localhost")
+            ),
             Err(String::from("Invalid Sec-WebSocket-Key"))
         );
     }
