@@ -46,7 +46,19 @@ impl WebSocketServer<TcpListener> {
                 "Failed to parse handshake as utf8",
             )
         })?;
-        let hs = self.validate_handshake(handshake);
+        
+        let response = match self.validate_handshake(handshake) {
+            // TODO: handle other HTTP protocol values, Sec-WebSocket-Protocol,
+            // Sec-WebSocket-Extensions, and any additional headers
+            Ok(key) => format!(
+            "HTTP/1.1 101 Switching Protocols
+            Upgrade: websocket
+            Connection: Upgrade
+            Sec-WebSocket-Accept: {key}"),
+            Err(msg) => format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}"),
+        };
+
+        stream.write(response.as_bytes())?;
 
         // echo back whatever we get from here on
         loop {
@@ -54,7 +66,7 @@ impl WebSocketServer<TcpListener> {
             reader.consume(recv.len());
             let message = String::from_utf8(recv).unwrap();
             if !message.is_empty() {
-                println!("{}", message);
+                print!("{}", message);
                 _ = stream.write(message.as_bytes());
             }
         }
