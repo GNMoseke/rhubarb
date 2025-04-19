@@ -91,7 +91,7 @@ impl ServerHandle<TcpStream> {
             reader.consume(recv.len());
             let message = String::from_utf8(recv).unwrap();
             if !message.is_empty() {
-                print!("{}", message);
+                print!("{} - {}", self.stream.peer_addr().expect("peer address found"), message);
                 _ = self.stream.write_all(message.as_bytes());
             }
         }
