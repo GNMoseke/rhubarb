@@ -1,7 +1,7 @@
 use std::{io::Write, net::TcpStream};
 
 pub(crate) const HARDCODED_HANDSHAKE: &str = "GET /ws HTTP/1.1
-Host: localhost
+Host: 127.0.0.1:4024
 Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==

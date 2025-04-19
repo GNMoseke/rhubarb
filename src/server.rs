@@ -60,7 +60,7 @@ impl ServerHandle<TcpStream> {
             )
         })?;
 
-        let response = match self.validate_handshake(
+        match self.validate_handshake(
             handshake,
             self.stream
                 .local_addr()
@@ -69,16 +69,24 @@ impl ServerHandle<TcpStream> {
         ) {
             // TODO: handle other HTTP protocol values, Sec-WebSocket-Protocol,
             // Sec-WebSocket-Extensions, and any additional headers
-            Ok(key) => format!(
-                "HTTP/1.1 101 Switching Protocols
-            Upgrade: websocket
-            Connection: Upgrade
-            Sec-WebSocket-Accept: {key}"
-            ),
-            Err(msg) => format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}"),
+            Ok(key) => {
+                let response = format!(
+                    "HTTP/1.1 101 Switching Protocols
+                    Upgrade: websocket
+                    Connection: Upgrade
+                    Sec-WebSocket-Accept: {key}"
+                );
+                self.stream.write(response.as_bytes())?;
+            }
+            Err(msg) => {
+                self.log(format!("Handshake failed - {}", msg), log::LogLevel::Warning);
+                let response = format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}");
+                self.stream.write(response.as_bytes())?;
+                self.stream.shutdown(Shutdown::Both).expect("Shutdown failed");
+                return Ok(())
+            },
         };
 
-        self.stream.write(response.as_bytes())?;
         self.log(
             String::from("Handshake complete, websocket established."),
             log::LogLevel::Info,
@@ -255,7 +263,7 @@ mod tests {
         assert_eq!(
             server.validate_handshake(
                 client::HARDCODED_HANDSHAKE.to_string(),
-                String::from("localhost")
+                String::from("127.0.0.1:4024")
             ),
             Ok(String::from("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
         );
