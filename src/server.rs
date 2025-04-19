@@ -1,3 +1,4 @@
+use crate::log;
 use base64ct::{Base64, Encoding};
 use sha1::{Digest, Sha1};
 use std::{
@@ -14,8 +15,14 @@ struct ServerHandle<S: Stream> {
     stream: S,
 }
 
-pub(crate) trait Stream {}
-impl Stream for TcpStream {}
+pub(crate) trait Stream {
+    fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr>;
+}
+impl Stream for TcpStream {
+    fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        self.peer_addr()
+    }
+}
 
 impl WebSocketServer {
     pub(crate) fn create(bind_addr: &str) -> std::io::Result<WebSocketServer> {
@@ -36,23 +43,30 @@ impl WebSocketServer {
 
 impl ServerHandle<TcpStream> {
     pub(crate) fn handle_client(&mut self) -> std::io::Result<()> {
+        self.log(String::from("New Client Connected"), log::LogLevel::Info);
         let mut reader = BufReader::new(self.stream.try_clone()?);
         let recv: Vec<u8> = reader.fill_buf()?.to_vec();
         reader.consume(recv.len());
 
         // need to first handle the handshake, then start processing data
         let handshake = String::from_utf8(recv).map_err(|_| {
-            // TODO: handle a failed shutdown
-            _ = self.stream.shutdown(Shutdown::Both);
+            _ = self
+                .stream
+                .shutdown(Shutdown::Both)
+                .expect("Shutdown failed");
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to parse handshake as utf8",
             )
         })?;
 
-        let response = match self
-            .validate_handshake(handshake, self.stream.local_addr().unwrap().to_string())
-        {
+        let response = match self.validate_handshake(
+            handshake,
+            self.stream
+                .local_addr()
+                .expect("no local address found")
+                .to_string(),
+        ) {
             // TODO: handle other HTTP protocol values, Sec-WebSocket-Protocol,
             // Sec-WebSocket-Extensions, and any additional headers
             Ok(key) => format!(
@@ -65,6 +79,10 @@ impl ServerHandle<TcpStream> {
         };
 
         self.stream.write(response.as_bytes())?;
+        self.log(
+            String::from("Handshake complete, websocket established."),
+            log::LogLevel::Info,
+        );
 
         // echo back whatever we get from here on
         loop {
@@ -87,6 +105,10 @@ impl<S: Stream> ServerHandle<S> {
         client_handshake: String,
         hostname: String,
     ) -> Result<String, String> {
+        self.log(
+            format!("Validating client handshake {}", client_handshake),
+            log::LogLevel::Debug,
+        );
         let mut components = client_handshake.trim().split('\n');
         // pop the method + path + http version
         let http_request = match components.next() {
@@ -191,14 +213,35 @@ impl<S: Stream> ServerHandle<S> {
         let base64_hash = Base64::encode_string(&hash);
         Ok(base64_hash)
     }
+
+    fn log(&self, msg: String, level: log::LogLevel) {
+        // NOTE: this expect is half-reasonable since if we can't get a peer addr how are we
+        // connected, but it should probably be handled more gracefully
+        log::log(
+            format!(
+                "{} - {msg}",
+                self.stream.peer_addr().expect("No peer address found")
+            ),
+            level,
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     struct MockStream {}
+    use std::net::{IpAddr, Ipv4Addr};
+
     use crate::client;
     use crate::server::*;
-    impl Stream for MockStream {}
+    impl Stream for MockStream {
+        fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+            Ok(std::net::SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                4024,
+            ))
+        }
+    }
     fn make_test_handle() -> ServerHandle<MockStream> {
         ServerHandle {
             stream: MockStream {},

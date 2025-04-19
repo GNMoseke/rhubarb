@@ -4,6 +4,7 @@ use std::env;
 
 mod client;
 mod server;
+mod log;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
