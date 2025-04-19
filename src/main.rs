@@ -1,27 +1,27 @@
-use std::env;
 use client::*;
 use server::*;
+use std::env;
 
-mod server;
 mod client;
+mod server;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.iter().count() < 2 {
+    if args.len() < 2 {
         panic!("Must give arg as 'client' or 'server'")
     }
     let run_mode = &args[1];
 
     if run_mode.to_lowercase() == "server" {
         let server = WebSocketServer::create("127.0.0.1:4024")?;
-        return server.listen();
+        server.listen()
     } else if run_mode.to_lowercase() == "client" {
-        let bind_addr: &str;
-        if args.iter().count() < 3 {
-            bind_addr = "127.0.0.1:4024";
+        let bind_addr: &str = if args.len() < 3 {
+            "127.0.0.1:4024"
         } else {
-            bind_addr = &args[2];
-        }
+            &args[2]
+        };
+
         let mut client = WebSocketClient::create(bind_addr)?;
         _ = client.send(HARDCODED_HANDSHAKE.as_bytes());
 

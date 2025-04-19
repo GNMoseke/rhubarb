@@ -1,10 +1,6 @@
-use std::{
-    io::Write,
-    net::TcpStream,
-};
+use std::{io::Write, net::TcpStream};
 
-pub(crate) const HARDCODED_HANDSHAKE: &str = 
-"GET /ws HTTP/1.1
+pub(crate) const HARDCODED_HANDSHAKE: &str = "GET /ws HTTP/1.1
 Host: localhost
 Upgrade: websocket
 Connection: Upgrade
@@ -25,7 +21,7 @@ impl WebSocketClient {
     }
 
     pub(crate) fn send(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self._stream.write(data)?;
+        self._stream.write_all(data)?;
         Ok(())
     }
 }

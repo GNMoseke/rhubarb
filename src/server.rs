@@ -24,12 +24,10 @@ impl WebSocketServer<TcpListener> {
     }
 
     pub(crate) fn listen(self) -> std::io::Result<()> {
-        for stream in self._listener.incoming() {
-            if let Ok(stream) = stream {
-                // TODO: dispatch each client to its own thread so that one bad handshake doesn't take
-                // down the server
-                self.handle_client(stream)?;
-            }
+        for stream in self._listener.incoming().flatten() {
+            // TODO: dispatch each client to its own thread so that one bad handshake doesn't take
+            // down the server
+            self.handle_client(stream)?;
         }
         Ok(())
     }
@@ -48,14 +46,14 @@ impl WebSocketServer<TcpListener> {
                 "Failed to parse handshake as utf8",
             )
         })?;
-        println!("{}", handshake);
+        let hs = self.validate_handshake(handshake);
 
         // echo back whatever we get from here on
         loop {
             let recv: Vec<u8> = reader.fill_buf()?.to_vec();
             reader.consume(recv.len());
             let message = String::from_utf8(recv).unwrap();
-            if message.len() > 0 {
+            if !message.is_empty() {
                 println!("{}", message);
                 _ = stream.write(message.as_bytes());
             }
@@ -75,7 +73,7 @@ impl<L: Listener> WebSocketServer<L> {
         };
 
         // validation 1 - must be a GET request, with a valid Request-URI with HTTP/1.1 or higher
-        let mut request_components = http_request.trim().split_whitespace().into_iter();
+        let mut request_components = http_request.split_whitespace();
 
         let mut err = String::from("Handshake is not a GET Request");
         match request_components.next() {
@@ -118,7 +116,7 @@ impl<L: Listener> WebSocketServer<L> {
 
         // validation 2 - must include a Host header matching server
         match headers.get("host") {
-            Some(given_host) if given_host.trim().to_string() == self.hostname => {}
+            Some(given_host) if *given_host.trim().to_string() == self.hostname => {}
             Some(_) => return Err(String::from("Invalid hostname")),
             None => return Err(String::from("Handshake missing Host header")),
         };
@@ -169,7 +167,7 @@ impl<L: Listener> WebSocketServer<L> {
         // just calling into rustcrypto
         let hash = Sha1::digest(key.as_bytes());
         let base64_hash = Base64::encode_string(&hash);
-        return Ok(base64_hash);
+        Ok(base64_hash)
     }
 }
 
