@@ -50,8 +50,7 @@ impl ServerHandle<TcpStream> {
 
         // need to first handle the handshake, then start processing data
         let handshake = String::from_utf8(recv).map_err(|_| {
-            _ = self
-                .stream
+            self.stream
                 .shutdown(Shutdown::Both)
                 .expect("Shutdown failed");
             std::io::Error::new(
@@ -76,15 +75,20 @@ impl ServerHandle<TcpStream> {
                     Connection: Upgrade
                     Sec-WebSocket-Accept: {key}"
                 );
-                self.stream.write(response.as_bytes())?;
+                self.stream.write_all(response.as_bytes())?;
             }
             Err(msg) => {
-                self.log(format!("Handshake failed - {}", msg), log::LogLevel::Warning);
+                self.log(
+                    format!("Handshake failed - {}", msg),
+                    log::LogLevel::Warning,
+                );
                 let response = format!("HTTP/1.1 400 Bad Request\r\n\r\n{msg}");
-                self.stream.write(response.as_bytes())?;
-                self.stream.shutdown(Shutdown::Both).expect("Shutdown failed");
-                return Ok(())
-            },
+                self.stream.write_all(response.as_bytes())?;
+                self.stream
+                    .shutdown(Shutdown::Both)
+                    .expect("Shutdown failed");
+                return Ok(());
+            }
         };
 
         self.log(
@@ -99,7 +103,7 @@ impl ServerHandle<TcpStream> {
             let message = String::from_utf8(recv).unwrap();
             if !message.is_empty() {
                 print!("{}", message);
-                _ = self.stream.write(message.as_bytes());
+                _ = self.stream.write_all(message.as_bytes());
             }
         }
     }
