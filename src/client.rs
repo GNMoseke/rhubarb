@@ -21,6 +21,14 @@ pub(crate) struct WebSocketClient<S: Stream> {
     stream: S,
 }
 
+impl Clone for WebSocketClient<TcpStream> {
+    fn clone(&self) -> Self {
+        Self {
+            stream: self.stream.try_clone().expect("cloning tcp stream"),
+        }
+    }
+}
+
 impl WebSocketClient<TcpStream> {
     pub(crate) fn create(bind_addr: &str) -> std::io::Result<WebSocketClient<TcpStream>> {
         let _stream = TcpStream::connect(bind_addr)?;
@@ -32,15 +40,14 @@ impl WebSocketClient<TcpStream> {
         Ok(())
     }
 
-    pub(crate) fn recv(&mut self) -> std::io::Result<()> {
-        let mut reader = BufReader::new(self.stream.try_clone()?);
+    pub(crate) fn recv(self) -> std::io::Result<()> {
+        let mut reader = BufReader::new(self.stream);
         loop {
             let recv: Vec<u8> = reader.fill_buf()?.to_vec();
             reader.consume(recv.len());
             let message = String::from_utf8(recv).unwrap();
             if !message.is_empty() {
                 print!("{}", message);
-                _ = self.stream.write_all(message.as_bytes());
             }
         }
     }
@@ -184,3 +191,6 @@ impl<S: Stream> WebSocketClient<S> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {}

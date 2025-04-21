@@ -3,6 +3,7 @@ use server::*;
 use std::env;
 
 mod client;
+mod frame;
 mod log;
 mod server;
 mod util;
@@ -28,6 +29,10 @@ fn main() -> std::io::Result<()> {
         // TODO: let this path be an arg to the cli
         client.perform_handshake(String::from("/ws"))?;
 
+        // Dispatch all incoming recv to their own thread
+        let receiver = client.clone();
+        let handle = std::thread::spawn(|| receiver.recv());
+
         // now read user stdin and send that for all eternity
         let mut stdin_buf = String::new();
         let stdin = std::io::stdin();
@@ -35,6 +40,7 @@ fn main() -> std::io::Result<()> {
             _ = client.send(stdin_buf.as_bytes());
             stdin_buf.clear();
         }
+        handle.join().expect("closing client receiver");
         Ok(())
     } else {
         panic!("Must give arg as 'client' or 'server'")
