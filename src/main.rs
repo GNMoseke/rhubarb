@@ -40,8 +40,7 @@ fn main() -> std::io::Result<()> {
             _ = client.send(stdin_buf.as_bytes());
             stdin_buf.clear();
         }
-        handle.join().expect("closing client receiver");
-        Ok(())
+        Ok(handle.join().expect("closing client receiver")?)
     } else {
         panic!("Must give arg as 'client' or 'server'")
     }

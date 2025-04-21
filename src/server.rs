@@ -261,7 +261,15 @@ mod tests {
 
         assert_eq!(
             server.validate_handshake(
-                client::HARDCODED_HANDSHAKE.to_string(),
+                String::from(
+                    "GET /ws HTTP/1.1
+                    Host: 127.0.0.1:4024
+                    Upgrade: websocket
+                    Connection: Upgrade
+                    Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+                    Sec-WebSocket-Protocol: rhubarb
+                    Sec-WebSocket-Version: 13"
+                ),
                 String::from("127.0.0.1:4024")
             ),
             Ok(String::from("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))

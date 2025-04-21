@@ -8,15 +8,6 @@ use std::{
     net::{Shutdown, TcpStream},
 };
 
-pub(crate) const HARDCODED_HANDSHAKE: &str = "GET /ws HTTP/1.1
-Host: 127.0.0.1:4024
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-Sec-WebSocket-Protocol: rhubarb
-Sec-WebSocket-Version: 13
-";
-
 pub(crate) struct WebSocketClient<S: Stream> {
     stream: S,
 }
@@ -73,6 +64,7 @@ impl WebSocketClient<TcpStream> {
         })?;
 
         self.validate_server_handshake(response, key).map_err(|e| {
+            self.log(format!("handshake failed: {}", e), LogLevel::Error);
             self.stream
                 .shutdown(Shutdown::Both)
                 .expect("Shutdown succeeded");
@@ -110,9 +102,7 @@ impl<S: Stream> WebSocketClient<S> {
         response_components.next();
         match response_components.next() {
             Some("101") => {}
-            Some(resp_code) => {
-                return Err(String::from(format!("Invalid response code {}", resp_code)))
-            }
+            Some(resp_code) => return Err(format!("Invalid response code {}", resp_code)),
             None => return Err(String::from("Missing response code")),
         };
 
@@ -170,10 +160,7 @@ impl<S: Stream> WebSocketClient<S> {
             Sec-WebSocket-Protocol: rhubarb\n\
             Sec-WebSocket-Version: 13\n
             ",
-                self.stream
-                    .peer_addr()
-                    .expect("peer address found")
-                    .to_string(),
+                self.stream.peer_addr().expect("peer address found"),
                 key
             ),
             key,
