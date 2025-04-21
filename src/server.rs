@@ -234,11 +234,12 @@ impl<S: Stream> ServerHandle<S> {
 
 #[cfg(test)]
 mod tests {
-    struct MockStream {}
     use std::net::{IpAddr, Ipv4Addr};
 
+    use super::*;
     use crate::client;
-    use crate::server::*;
+
+    struct MockStream {}
     impl Stream for MockStream {
         fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
             Ok(std::net::SocketAddr::new(
@@ -247,6 +248,7 @@ mod tests {
             ))
         }
     }
+
     fn make_test_handle() -> ServerHandle<MockStream> {
         ServerHandle {
             stream: MockStream {},

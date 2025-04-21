@@ -155,6 +155,7 @@ impl<S: Stream> WebSocketClient<S> {
         Ok(())
     }
 
+    /// Returns the HTTP GET request and the Sec-WebSocket-Key value created
     fn create_handshake_http_request(&self, path: String) -> (String, String) {
         let mut nonce = [0u8; 16];
         rand::fill(&mut nonce);
@@ -193,4 +194,141 @@ impl<S: Stream> WebSocketClient<S> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    struct MockStream {}
+    impl Stream for MockStream {
+        fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+            Ok(std::net::SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                4024,
+            ))
+        }
+    }
+
+    fn make_test_client() -> WebSocketClient<MockStream> {
+        WebSocketClient {
+            stream: MockStream {},
+        }
+    }
+
+    #[test]
+    fn valid_handshake() {
+        let client = make_test_client();
+        let (_, key) = client.create_handshake_http_request(String::from("/ws"));
+        let combined_key = key.clone() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+        let hash = Sha1::digest(combined_key.as_bytes());
+        let server_key = Base64::encode_string(&hash);
+        assert!(client
+            .validate_server_handshake(
+                format!(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                Upgrade: websocket\n\
+                Connection: Upgrade\n\
+                Sec-WebSocket-Accept: {server_key}"
+                ),
+                key,
+            )
+            .is_ok())
+    }
+
+    #[test]
+    fn malformed_response() {
+        let client = make_test_client();
+
+        assert_eq!(
+            client.validate_server_handshake(String::from(""), String::from("")),
+            Err(String::from("Missing response code"))
+        );
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from("HTTP/1.1 400 Bad Request"),
+                String::from("")
+            ),
+            Err(String::from("Invalid response code 400"))
+        );
+    }
+
+    #[test]
+    fn bad_upgrade_header() {
+        let client = make_test_client();
+
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from("HTTP/1.1 101 Switching Protocols"),
+                String::from("")
+            ),
+            Err(String::from("Handshake missing Upgrade header"))
+        );
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: not-websocket"
+                ),
+                String::from("")
+            ),
+            Err(String::from("Requested Upgrade was not 'websocket'"))
+        );
+    }
+
+    #[test]
+    fn bad_connection_header() {
+        let client = make_test_client();
+
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: websocket"
+                ),
+                String::from("")
+            ),
+            Err(String::from("Handshake missing Connection header"))
+        );
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: websocket\n\
+                    Connection: not upgrade"
+                ),
+                String::from("")
+            ),
+            Err(String::from("Requested Connection was not 'upgrade'"))
+        );
+    }
+
+    #[test]
+    fn bad_key() {
+        let client = make_test_client();
+
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: websocket\n\
+                    Connection: upgrade\n"
+                ),
+                String::from("")
+            ),
+            Err(String::from(
+                "Handshake missing Sec-WebSocket-Accept header"
+            ))
+        );
+        assert_eq!(
+            client.validate_server_handshake(
+                String::from(
+                    "HTTP/1.1 101 Switching Protocols\n\
+                    Upgrade: websocket\n\
+                    Connection: upgrade\n\
+                    Sec-WebSocket-Accept: invalid-key"
+                ),
+                String::from("somekey")
+            ),
+            Err(String::from("Server key invalid"))
+        );
+    }
+}
