@@ -237,7 +237,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use super::*;
-    use crate::client;
 
     struct MockStream {}
     impl Stream for MockStream {
