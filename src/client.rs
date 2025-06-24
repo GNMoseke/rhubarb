@@ -27,6 +27,13 @@ impl WebSocketClient<TcpStream> {
     }
 
     pub(crate) fn send(&mut self, data: &[u8]) -> std::io::Result<()> {
+        // TODO:
+        // client side of the protocol needs to:
+        // 1. decide if the data to send is big enough to break into frames (might opt for 16K by
+        //    default)
+        // 2. Create the correct frame sequence, with correct FIN
+        // 3. Mask each frame
+        // 4. Send the sequence
         self.stream.write_all(data)?;
         Ok(())
     }
@@ -71,6 +78,8 @@ impl WebSocketClient<TcpStream> {
             std::io::Error::new(std::io::ErrorKind::InvalidData, e)
         })?;
 
+        // TODO: after succesful upgrade, need to break off a background thread that sends
+        // ping-pongs. Ping frames should just contain some random data that the server echoes back
         Ok(())
     }
 }

@@ -29,23 +29,23 @@ impl WebSocketFrame {
         mask_key: Option<[u8; 4]>,
     ) -> WebSocketFrame {
         let len: u64 = (data.len() * 8).try_into().unwrap();
-        if mask_key != None {
+        if mask_key.is_some() {
             return WebSocketFrame {
-                fin: fin,
+                fin,
                 masked: true,
-                opcode: opcode,
+                opcode,
                 payload_len: len,
-                mask_key: mask_key,
-                data: data,
+                mask_key,
+                data,
             };
         }
         WebSocketFrame {
-            fin: fin,
+            fin,
             masked: false,
-            opcode: opcode,
+            opcode,
             payload_len: len,
-            mask_key: mask_key,
-            data: data,
+            mask_key,
+            data,
         }
     }
 
@@ -56,22 +56,22 @@ impl WebSocketFrame {
         mask_key: Option<[u8; 4]>,
     ) -> WebSocketFrame {
         let len: u64 = (data.len() * 8).try_into().unwrap();
-        if mask_key != None {
+        if mask_key.is_some() {
             return WebSocketFrame {
-                fin: fin,
+                fin,
                 masked: true,
-                opcode: opcode,
+                opcode,
                 payload_len: len,
-                mask_key: mask_key,
+                mask_key,
                 data: data.as_bytes().into(),
             };
         }
         WebSocketFrame {
-            fin: fin,
+            fin,
             masked: false,
-            opcode: opcode,
+            opcode,
             payload_len: len,
-            mask_key: mask_key,
+            mask_key,
             data: data.as_bytes().into(),
         }
     }
@@ -90,7 +90,7 @@ impl WebSocketFrame {
             _ => panic!("failed bitshift"),
         };
 
-        let opcode = match (meta & !0xF0) | (0x0 & 0xF0) {
+        let opcode = match meta & !0xF0 {
             0x0 => WebSocketOpCode::Continuation,
             0x1 => WebSocketOpCode::Text,
             0x2 => WebSocketOpCode::Binary,
@@ -111,7 +111,7 @@ impl WebSocketFrame {
             _ => panic!("failed bitshift"),
         };
 
-        let shifted_len = (mask_and_len & !0x80) | (0x0 & 0x80);
+        let shifted_len = mask_and_len & !0x80;
         let payload_len: u64 = match shifted_len {
             0..=125 => shifted_len.into(),
             126 => {
@@ -168,17 +168,17 @@ impl WebSocketFrame {
         let mut meta: u8 = 0;
 
         if self.fin {
-            meta = meta | 0x80;
+            meta |= 0x80;
         }
 
         match self.opcode {
-            WebSocketOpCode::Continuation => meta = meta | 0x0,
-            WebSocketOpCode::Text => meta = meta | 0x01,
-            WebSocketOpCode::Binary => meta = meta | 0x02,
-            WebSocketOpCode::Close => meta = meta | 0x08,
-            WebSocketOpCode::Ping => meta = meta | 0x09,
-            WebSocketOpCode::Pong => meta = meta | 0x0A,
-            WebSocketOpCode::Reserved => meta = meta | 0x0F,
+            WebSocketOpCode::Continuation => meta |= 0x0,
+            WebSocketOpCode::Text => meta |= 0x01,
+            WebSocketOpCode::Binary => meta |= 0x02,
+            WebSocketOpCode::Close => meta |= 0x08,
+            WebSocketOpCode::Ping => meta |= 0x09,
+            WebSocketOpCode::Pong => meta |= 0x0A,
+            WebSocketOpCode::Reserved => meta |= 0x0F,
         };
 
         bytes.push(meta);
@@ -242,8 +242,8 @@ mod tests {
         let frame = WebSocketFrame::new_bin(true, WebSocketOpCode::Continuation, vec![], None);
         let binary = frame.encode();
         let parsed = WebSocketFrame::parse(binary);
-        assert_eq!(parsed.fin, true);
-        assert_eq!(parsed.masked, false);
+        assert!(parsed.fin);
+        assert!(!parsed.masked);
         assert_eq!(parsed.opcode, WebSocketOpCode::Continuation);
         assert_eq!(parsed.payload_len, 0);
         assert_eq!(parsed.mask_key, None);
@@ -256,8 +256,8 @@ mod tests {
             WebSocketFrame::new_bin(true, WebSocketOpCode::Continuation, vec![1, 2, 3], None);
         let binary = frame.encode();
         let parsed = WebSocketFrame::parse(binary);
-        assert_eq!(parsed.fin, true);
-        assert_eq!(parsed.masked, false);
+        assert!(parsed.fin);
+        assert!(!parsed.masked);
         assert_eq!(parsed.opcode, WebSocketOpCode::Continuation);
         assert_eq!(parsed.payload_len, 24);
         assert_eq!(parsed.mask_key, None);
@@ -270,8 +270,8 @@ mod tests {
             WebSocketFrame::new_str(true, WebSocketOpCode::Continuation, "foo".to_string(), None);
         let binary = frame.encode();
         let parsed = WebSocketFrame::parse(binary);
-        assert_eq!(parsed.fin, true);
-        assert_eq!(parsed.masked, false);
+        assert!(parsed.fin);
+        assert!(!parsed.masked);
         assert_eq!(parsed.opcode, WebSocketOpCode::Continuation);
         assert_eq!(parsed.payload_len, 24);
         assert_eq!(parsed.mask_key, None);
